@@ -1,34 +1,86 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
+import { sendMessage, getMessages, resetConversation, Message } from "@/services/api";
+import ModelSelector from "@/components/ModelSelector";
 
 export default function Home() {
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<Message[]>([
     { role: "system", content: "Welcome to NeuraTalk AI. How can I assist you today?" }
   ]);
   const [input, setInput] = useState("");
-  const [selectedModel, setSelectedModel] = useState("claude");
+  const [provider, setProvider] = useState("openai"); // Default to OpenAI
+  const [selectedModel, setSelectedModel] = useState("gpt-3.5-turbo");
+  const [systemPrompt, setSystemPrompt] = useState("You are a helpful assistant");
   const [isTyping, setIsTyping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  // Load messages on initial load
+  useEffect(() => {
+    const fetchMessages = async () => {
+      try {
+        const fetchedMessages = await getMessages();
+        if (fetchedMessages && fetchedMessages.length > 0) {
+          setMessages(fetchedMessages);
+        }
+      } catch (err) {
+        console.error("Failed to fetch messages:", err);
+      }
+    };
+    
+    fetchMessages();
+  }, []);
+
+  // Handle model change to reset conversation
+  const handleModelChange = async () => {
+    try {
+      await resetConversation();
+      setMessages([
+        { role: "system", content: "Welcome to NeuraTalk AI. How can I assist you today?" }
+      ]);
+      setError(null);
+    } catch (err) {
+      console.error("Failed to reset conversation:", err);
+    }
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
     
-    // Add user message
+    // Add user message locally first for immediate feedback
     const newMessages = [...messages, { role: "user", content: input }];
     setMessages(newMessages);
     setInput("");
+    setError(null);
     
-    // Simulate AI typing
+    // Show typing indicator
     setIsTyping(true);
-    setTimeout(() => {
-      setMessages([...newMessages, { 
-        role: "system", 
-        content: `This is a simulated response from ${selectedModel === "claude" ? "Claude" : "OpenAI"}. In a real implementation, this would make an API call to the selected AI service.` 
-      }]);
+    
+    try {
+      // Send message to API with current model and provider settings
+      const response = await sendMessage(
+        input,
+        selectedModel,
+        systemPrompt,
+        provider
+      );
+      
+      // Update with the actual response from the server
+      setMessages(response.messages);
+    } catch (err) {
+      console.error("Error sending message:", err);
+      setError("Failed to send message. Please try again.");
+      
+      // Add error message
+      setMessages([
+        ...newMessages,
+        { role: "system", content: "Sorry, there was an error communicating with the AI service." }
+      ]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -58,26 +110,18 @@ export default function Home() {
       {/* Main content */}
       <main className="flex-1 flex flex-col max-w-4xl w-full mx-auto my-4 px-4">
         {/* Model selector */}
-        <div className="mb-4 flex justify-center">
-          <div className="bg-gray-800/50 backdrop-blur-sm p-1 rounded-full flex text-sm font-medium">
-            <button 
-              onClick={() => setSelectedModel("claude")} 
-              className={`px-4 py-2 rounded-full transition-all ${selectedModel === "claude" ? 
-                "bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg" : 
-                "text-gray-400 hover:text-gray-200"}`}
-            >
-              Claude
-            </button>
-            <button 
-              onClick={() => setSelectedModel("openai")} 
-              className={`px-4 py-2 rounded-full transition-all ${selectedModel === "openai" ? 
-                "bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg" : 
-                "text-gray-400 hover:text-gray-200"}`}
-            >
-              OpenAI
-            </button>
+        <ModelSelector 
+          provider={provider}
+          setProvider={setProvider}
+          selectedModel={selectedModel}
+          setSelectedModel={setSelectedModel}
+          onModelChange={handleModelChange}
+        />
+        {error && (
+          <div className="mb-4 mt-2 bg-red-500/20 text-red-300 px-4 py-2 rounded-md text-sm">
+            {error}
           </div>
-        </div>
+        )}
         
         {/* Chat container */}
         <div className="flex-1 bg-gray-800/30 backdrop-blur-sm rounded-xl overflow-hidden flex flex-col">
